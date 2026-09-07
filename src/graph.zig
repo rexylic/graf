@@ -1,79 +1,108 @@
+//! Like a graph but uses a hash to store edges and vertices.
+
 const std = @import("std");
-const AHM = std.hash_map.AutoHashMap;
+const Alloc = std.mem.Allocator;
+const Dict = std.hash_map.AutoHashMap;
 
-const Edge = @import("edge.zig").Edge;
-const Vertex = @import("vertex.zig").Vertex;
+pub fn Graph(comptime NodeType: type, comptime EdgeType: type) type {
+    const V = NodeType;
+    const E = EdgeType;
 
-pub fn Graph(T: type) type {
-    const V = *const Vertex(T);
-    const E = *const Edge(T);
     return struct {
-        vertices: AHM(V, void),
-        edges: AHM(E, void),
+        nodes: Dict(V, ?Dict(V, E)),
+        edges: Dict(E, struct { V, V }),
 
-        const Self = @This();
+        pub const I = @This();
 
-        pub fn init(allocator: std.mem.Allocator) Self {
-            return Self{
-                .vertices = .init(allocator),
+        pub fn init(allocator: Alloc) I {
+            return I{
+                .nodes = .init(allocator),
                 .edges = .init(allocator),
             };
         }
 
-        pub fn deinit(i: *Self) void {
-            i.vertices.deinit();
+        pub fn deinit(i: *I) void {
+            var ki = i.nodes.keyIterator();
+            while (ki.next()) |node| {
+                const edges = i.neighbours(node.*) orelse continue;
+                edges.deinit();
+            }
+            i.nodes.deinit();
             i.edges.deinit();
         }
 
-        /// Add vertex to the graph.
-        /// Throws if out of memory.
-        pub fn addVertex(i: *Self, v: V) !void {
-            try i.vertices.put(v, {});
+        // ========== NODE ==========
+
+        fn neighbours(i: *I, node: V) ?*Dict(V, E) {
+            const maybe_edges = i.nodes.getPtr(node) orelse return null;
+            if (maybe_edges.*) |*edges| return edges;
+            return null;
         }
 
-        /// Add edge and its end vertices to the graph.
-        /// Throws if out of memory.
-        pub fn addEdge(i: *Self, e: E) !void {
-            try i.edges.put(e, {});
-            try i.vertices.put(e.source, {});
-            try i.vertices.put(e.sink, {});
+        pub fn addNode(i: *I, node: V) !bool {
+            if (i.nodes.contains(node)) return false;
+            try i.nodes.put(node, null);
+            return true;
         }
 
-        /// Remove vertex from the graph.
-        pub fn removeVertex(i: *Self, v: V) bool {
-            return i.vertices.remove(v);
+        pub fn delNode(i: *I, node: V) bool {
+            if (!i.nodes.contains(node)) return false;
+            if (i.neighbours(node)) |edges| {
+                var ev = edges.valueIterator();
+                while (ev.next()) |edge| _ = i.edges.remove(edge.*);
+                edges.deinit();
+            }
+            _ = i.nodes.remove(node);
+            return true;
         }
 
-        /// Remove edge from the graph.
-        pub fn removeEdge(i: *Self, e: E) bool {
-            return i.edges.remove(e);
+        // ========== EDGE ==========
+
+        pub fn hasEdge(i: *const I, from: V, to: V) bool {
+            const maybe_edges = i.nodes.getPtr(from) orelse return false;
+            if (maybe_edges.*) |*edges| return edges.contains(to);
+            return false;
         }
 
-        /// Remove edge and its end vertices from the graph.
-        pub fn removeEdgeComplete(i: *Self, e: E) bool {
-            _ = i.removeVertex(e.sink);
-            _ = i.removeVertex(e.source);
-            return i.edges.remove(e);
+        pub fn getEdge(i: *const I, from: V, to: V) ?E {
+            if (!i.hasEdge(from, to)) return null;
+            return i.nodes.get(from).?.?.get(to).?;
+        }
+
+        pub fn addEdge(i: *I, from: V, to: V, item: E, allocator: Alloc) !bool {
+            if (i.hasEdge(from, to) or i.edges.contains(item)) return false;
+            _ = try i.addNode(from);
+            _ = try i.addNode(to);
+            try i.edges.put(item, .{ from, to });
+            if (i.neighbours(from) == null) try i.nodes.put(from, .init(allocator));
+            try i.neighbours(from).?.put(to, item);
+            return true;
+        }
+
+        pub fn delEdge(i: *I, from: V, to: V) bool {
+            if (i.getEdge(from, to)) |edge| {
+                _ = i.edges.remove(edge);
+                _ = i.neighbours(from).?.remove(to);
+                return true;
+            } else return false;
         }
     };
 }
 
 test {
-    var g = Graph(u8).init(std.testing.allocator);
+    const assert = std.testing.expect;
+    const alloc = std.testing.allocator;
+
+    var g = Graph(u8, u8).init(alloc);
     defer g.deinit();
 
-    const a = Vertex(u8){ .data = 1 };
-    try g.addVertex(&a);
-
-    const b = Vertex(u8){ .data = 2 };
-    const e = Edge(u8){ .source = &a, .sink = &b };
-    try g.addEdge(&e);
-    try std.testing.expect(g.vertices.contains(&b));
-
-    try std.testing.expect(g.removeVertex(&a));
-    try std.testing.expect(!g.vertices.contains(&a));
-
-    try std.testing.expect(g.removeEdge(&e));
-    try std.testing.expect(!g.edges.contains(&e));
-    try std.testing.expect(g.vertices.contains(&b));
+    try assert(try g.addNode(0));
+    try assert(try g.addNode(1));
+    try assert(try g.addEdge(2, 3, 0, alloc));
+    try assert(!try g.addEdge(2, 3, 1, alloc));
+    try assert(try g.addEdge(1, 3, 1, alloc));
+    try assert(!g.delNode(4));
+    try assert(g.delNode(0));
+    try assert(g.delEdge(1, 3));
+    try assert(!g.delEdge(5, 6));
 }

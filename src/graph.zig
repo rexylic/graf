@@ -25,21 +25,34 @@ pub fn Graph(T: type) type {
             i.edges.deinit();
         }
 
+        /// Add vertex to the graph.
+        /// Throws if out of memory.
         pub fn addVertex(i: *Self, v: V) !void {
             try i.vertices.put(v, {});
         }
 
+        /// Add edge and its end vertices to the graph.
+        /// Throws if out of memory.
         pub fn addEdge(i: *Self, e: E) !void {
             try i.edges.put(e, {});
             try i.vertices.put(e.source, {});
             try i.vertices.put(e.sink, {});
         }
 
+        /// Remove vertex from the graph.
         pub fn removeVertex(i: *Self, v: V) bool {
             return i.vertices.remove(v);
         }
 
+        /// Remove edge from the graph.
         pub fn removeEdge(i: *Self, e: E) bool {
+            return i.edges.remove(e);
+        }
+
+        /// Remove edge and its end vertices from the graph.
+        pub fn removeEdgeComplete(i: *Self, e: E) bool {
+            _ = i.removeVertex(e.sink);
+            _ = i.removeVertex(e.source);
             return i.edges.remove(e);
         }
     };

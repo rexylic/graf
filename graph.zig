@@ -1,11 +1,8 @@
-//! Graph implementation with O(1) lookup, update and delete.
-
 const std = @import("std");
 
 const Alloc = std.mem.Allocator;
 const AHM = std.array_hash_map.Auto;
 
-/// Neighborhood type.
 fn Neighborhood(V: type, E: type) type {
     return struct {
         const PartialNb = AHM(V, E);
@@ -94,17 +91,11 @@ fn Neighborhood(V: type, E: type) type {
     };
 }
 
-/// Graph type.
 pub fn Graph(V: type, E: type) type {
     return struct {
-        /// Custom neighborhood type.
         const Nh = Neighborhood(V, E);
 
-        /// Neighborhood of a vertex.
-        /// Stored allocator for graph.
         alloc: Alloc,
-
-        /// Graph data.
         nodes: AHM(V, Nh),
 
         pub fn init(alloc: Alloc) !@This() {
